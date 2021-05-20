@@ -1,4 +1,10 @@
 getReturns <- function(symbol_list, date_from, date_to){
+  # takes list of ticker symbols (maybe ending with a benchmark ETF or index)
+  # uses quantmod to pull weekly stock return data for each of those tickers
+  # creates an XTS object containing return data for all tickers
+  # sets column names of this XTS matrix to the relevant ticker symbols
+  # returns this object
+  
   # load data
   d = length(symbol_list)
   for(i in 1:d){
@@ -19,6 +25,11 @@ getReturns <- function(symbol_list, date_from, date_to){
 }
 
 getTreynorInputs <- function(rt_mat, rf){
+  # input 1: matrix of asset returns, with the last column being a benchmark
+  # input 2: series of returns from risk free asset
+  # then calculates the beta and risk premium for each asset
+  
+  
   # number equities (number of columns-1, since benchmark excluded)
   num_equity = dim(rt_mat)[2]-1
   
@@ -40,6 +51,16 @@ getTreynorInputs <- function(rt_mat, rf){
 }
 
 getTreynorRatios <- function(beta, risk_prem, mark_risk_prem, k=1){
+  # input 1: vector of betas
+  # input 2: vector of risk premiums
+  # input 3: risk premium for benchmark asset (for which beta defined as 1)
+  # input 4: optional, used to scale amount that Treynor ratio affects weights
+  # calculates Treynor ratio for each asset
+  # calculates a truncated Treynor ratio for each asset (require non negative)
+  # calculates weights (for asset within benchmark)
+      # e.g. sector weight within portfolio = sector ETF within total market
+      # e.g. asset weight within sector
+  
   treynor_ratio = as.array(risk_prem/(beta_calc*mark_risk_prem))
   treynor_ratio_truncated = apply(treynor_ratio, MARGIN = 1, FUN = function(x) ifelse(is.na(x) == TRUE, 0.1, ifelse(x>0, x, 0.1))) # cap at lower bound
   # k is optional parameter which scales emphasis on each sector up/down (>1 overweights those with positive Treynor ratios)
@@ -51,6 +72,12 @@ getTreynorRatios <- function(beta, risk_prem, mark_risk_prem, k=1){
 }
 
 getValues <- function(symbol_list, date_from, date_to){
+  # takes list of ticker symbols (maybe ending with a benchmark ETF or index)
+  # uses quantmod to pull weekly stock return data for each of those tickers
+  # creates an XTS object containing adjusted closing price for all tickers
+  # sets column names of this XTS matrix to the relevant ticker symbols
+  # returns this object
+  
   # load data
   d = length(symbol_list)
   for(i in 1:d){
