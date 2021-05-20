@@ -1,0 +1,240 @@
+---
+title: "CAPM-based Portfolio Weighting Between and Within Sectors"
+author: "Calvin Miller"
+date: "5/18/2021"
+abstract: "The Capital Asset Pricing Model (CAPM) is used to determine an appropriate rate of return for an asset based upon the riskiness of the asset. Specifically, the model looks at non-diversifiable risk of an asset, or the risk of an asset relative to the risk of the overall market, and calculates a rate of return which is commensurate with risk free rate of return plus a term scaling the market's excess return with the asset's level of relative risk. By subtracting the risk-free rate of return, the model can be used to estimate each assets Treynor reward to volatility ratio - simply the excess return (return minus risk free rate of return) divided by the beta for that asset (e.g. level of risk relative to the market). The belief is that assets with Treynor ratios greater than 1 would be expected to continue to generate excess returns greater than a well-diversified portfolio (e.g. of the risk-free asset and a market index) with the same level of risk. The use of the Treynor ratio to rank performance of assets is comparable to the use of Jensen's alpha, which represents the rankings in additive form instead of multiplicative form. A possible extension of this is to define excess returns as the residuals after regressing on some factors (e.g. Fama-French 3 factor model). In this case, the Treynor ratio is used because it provides non-negative values, which are used in this portfolio weighting scheme to dictate weight of individual assets within a sector and weight of sectors within the portfolio."
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+# Required Packages
+```{r, include = FALSE}
+if(!require(quantmod)){install.packages('quantmod');require(quantmod)}
+if(!require(readxl)){install.packages('readxl');require(readxl)}
+if(!require(rstudioapi)){install.packages('rstudioapi');require(rstudioapi)}
+if(!require(dplyr)){install.packages('dplyr');require(dplyr)}
+```
+
+# Loading Data
+```{r, include=FALSE}
+# set path to location of current file
+current_path = rstudioapi::getActiveDocumentContext()$path 
+setwd(dirname(current_path ))
+
+# load functions
+source("PortfolioFunctions.R")
+
+# read input data
+stockNames = read_excel("StockList.xlsx", sheet = "Tickers")
+sectorNames = read_excel("StockList.xlsx", sheet = "Sectors")
+
+# set dates to use for analysis
+date_from = "2019-01-01"
+date_to = "2020-01-01"
+```
+
+# Calculating Sector Weights
+
+## Load Data
+```{r, include=FALSE}
+# get ticker symbols
+sectorSymbols = sectorNames$ETF
+syb = c(sectorSymbols,'^GSPC') # add a symbol for overall market
+ 
+# pull return data for date range
+rt_sector = getReturns(syb, date_from, date_to)
+        # for(i in 1:length(syb)){
+        #   getSymbols(syb[i], from = date_from, to = date_to)
+        # }
+        # syb[length(syb)] = "GSPC" ## Change ^GSPC to GSPC
+        # # Calculate returns
+        # d_sector = length(syb)
+        # rt_sector = weeklyReturn(Ad(get(syb[1])), type = "arithmetic")[-1]
+        # for(i in 2:d){
+        # rt_sector = cbind(rt_sector,weeklyReturn(Ad(get(syb[i])), type = "arithmetic")[-1])
+        # Sys.sleep(2)
+        # }
+        # colnames(rt_sector) = syb
+        
+# convert to percentage return
+rt_sector = rt_sector*100
+
+# get 3-month T-Bill rates
+getSymbols("DGS3MO", src = "FRED")
+
+# convert daily to weekly data
+T.3MO = to.weekly(DGS3MO)
+
+# get treasury data for same period as returns & designate as risk-free rate of return
+Rf = T.3MO[time(rt_sector),4]/52
+
+# Exclude weeks were risk-free rate not available
+rt_sector = rt_sector[time(Rf),] 
+
+# calculate risk free rate of return as matrix 
+risk_free = as.matrix(Rf[,1])
+
+# create matrix from XTS object
+rt_sector_mat = as.matrix(rt_sector)
+
+```
+
+## Calculate Sector Treynor Ratios
+```{r, inlcude=FALSE}
+# determine betas and risk premiums
+trey = getTreynorInputs(rt_sector_mat, risk_free)
+beta_calc = trey[,1]
+risk_prem = trey[,2]
+
+mark_risk_prem = mean(rt_sector_mat[,dim(rt_sector_mat)[2]])-mean(risk_free)
+
+# SML: (mu_j-mu_rf) = beta_j(mu_market-mu_rf) -> alpha_j = beta_j *(market excess return)
+
+# plot to show position relative to market
+plot(beta_calc,risk_prem, xlim=c(0,2))
+lines(c(0,2),c(0,2*mark_risk_prem))
+abline(v=1,col='red', lty=2)
+abline(h=mark_risk_prem,col='red', lty=2)
+for(i in 1:(dim(rt_sector_mat)[2]-1)) {
+  points(beta_calc[i], risk_prem[i], pch="+", cex=2, col="red")
+  text(beta_calc[i], risk_prem[i], syb[i], cex=1, pos=4)
+}
+
+# calculate sector Treynor ratios
+treynor_ratios = getTreynorRatios(beta_calc, risk_prem, mark_risk_prem, k=0.5)
+
+sectorNames = sectorNames %>%
+  mutate(., sectorWeight = treynor_ratios[,3])
+
+```
+
+# Calculating Asset Weights within Sector
+
+```{r, include = FALSE}
+stockNames = stockNames %>%
+  mutate(., sectorWeight = 0, withinSectorWeight = 0) %>%
+  arrange(., Sector)
+
+sectorNames = sectorNames %>%
+  arrange(., Sector)
+
+for(i in 1:length(sectorNames$Sector)){
+  # grab relevant tickers
+  stockSubset = stockNames %>%
+    filter(., Sector == sectorNames$Sector[i])
+  
+  # pull stock return info
+  stockTickers = stockSubset$Symbol
+  sybtemp = c(stockTickers, syb[i])
+  
+  rt_temp = getReturns(sybtemp, date_from, date_to)
+
+  # convert to percentage return
+  rt_temp = rt_temp*100
+  
+  # get 3-month T-Bill rates
+  getSymbols("DGS3MO", src = "FRED")
+  
+  # convert daily to weekly data
+  T.3MO = to.weekly(DGS3MO)
+  
+  # get treasury data for same period as returns & designate as risk-free rate of return
+  Rf = T.3MO[time(rt_temp),4]/52
+  
+  # Exclude weeks were risk-free rate not available
+  rt_temp = rt_temp[time(Rf),] 
+  
+  # calculate risk free rate of return as matrix 
+  risk_free = as.matrix(Rf[,1])
+  
+  # create matrix from XTS object
+  rt_temp_mat = as.matrix(rt_temp)
+  
+  # determine betas and risk premiums
+  trey_temp = getTreynorInputs(rt_mat = rt_temp_mat, risk_free)
+  beta_calc = trey_temp[,1]
+  risk_prem = trey_temp[,2]
+  
+  mark_risk_prem = mean(rt_sector_mat[,i])-mean(risk_free)
+  
+  # get Treynor ratios  
+  treynor_ratios = getTreynorRatios(beta_calc, risk_prem, mark_risk_prem, k=0.5)
+
+  # update weights in 
+  stockSubset = stockSubset %>%
+  mutate(., sectorWeight = sectorNames$sectorWeight[i]) %>%
+  mutate(., withinSectorWeight = treynor_ratios[,3])
+  
+  stockNames = stockNames %>%
+    filter(., Sector != sectorNames$Sector[i])
+  
+  stockNames = stockNames %>%
+    union_all(., stockSubset)
+    
+}
+```
+
+# Determination of Target Portfolio
+
+```{r}
+portfolio = 10000
+
+portfolioValues = stockNames %>%
+  mutate(., portfolioWeight = sectorWeight*withinSectorWeight) %>%
+  mutate(., targetValue = portfolioWeight*portfolio) %>%
+  mutate(., withinSectorWeightAlt = ifelse(targetValue < 0.01, 0, withinSectorWeight)) %>%
+  group_by(Sector) %>% 
+  mutate(Total = sum(withinSectorWeightAlt))
+
+portfolioValues = portfolioValues %>%
+  mutate(., withinSectorWeightAlt = withinSectorWeightAlt/Total) %>%
+  mutate(., portfolioWeightAlt = sectorWeight*withinSectorWeightAlt) %>%
+  mutate(., targetValueAlt = portfolioWeightAlt*portfolio)
+
+# check next month against market
+# get ticker symbols
+portSymbols = portfolioValues %>%
+  filter(., targetValueAlt > 1) %>%
+  ungroup(.) %>%
+  select(.,c("Symbol"))
+
+syb = c(portSymbols$Symbol,'^GSPC') # add a symbol for overall market
+
+# set dates to use for analysis
+date_from = "2020-01-01"
+date_to = "2021-01-01"
+
+# pull return data for date range
+port_values = getValues(syb, date_from, date_to)
+
+
+# compare portfolio performance against market performance
+start_value = port_values[1,]
+end_value1 = port_values[20,]
+end_value2 = port_values[39,]
+end_value3 = port_values[252,]
+growth_ratio = as.vector(start_value)/as.vector(end_value3)
+growth_ratio = ifelse(is.na(growth_ratio), 1, growth_ratio)
+
+portSymbols = portfolioValues %>%
+  filter(., targetValueAlt > 1) %>%
+  ungroup(.) %>%
+  mutate(., growth = growth_ratio[1:484]) %>%
+  mutate(., value1MO = targetValueAlt*growth)
+
+sum(portSymbols$targetValueAlt)
+sum(portSymbols$value1MO)
+10000*growth_ratio[length(growth_ratio)]
+
+
+```
+
+Find that strategy does not fare well vs. market as a whole, but this may be due to market conditions resulting from COVID-19
+
+# to be completed
+- start with symbols from 2012, use 2012 performance to dictate 2013 weightings
+- use 2013 performance to dictate 2014 weightings
+- etc.
+- determine if model good vs market in long-run (by year as well as on rolling basis; recall 2020 performance may be atypical)
+- appears that < 500 stocks pass filter criteria from initial search, may be better to use https://en.wikipedia.org/wiki/List_of_S%26P_500_companies to access list of companies that would be current for each year
