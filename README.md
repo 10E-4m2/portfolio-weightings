@@ -23,4 +23,7 @@ a) automate generation of list of potential assets and their sector assignments
 b) allow for more substantial testing by assessing Treynor ratios for periods starting earlier (e.g. maybe 2010 and forward)
 c) if defining portfolio weights starting from an earlier period, develop more comprehensive test metrics (fit portfolio with returns from 2013, compare portfolio's performance for 2014 to market performance, repeat for 2014 data informing portfolio to be used for 2015, etc.)
 d) if testing becomes more mature, allow for optimization of parameter used to scale Treynor ratios (TR**k, where k=1 by default; can weight training period's performance more/less highly) as well as optimization of stock screening criteria
+e) explore whether Treynor ratios from simple CAPM are more/less effective than Treynor ratios from a factor model (e.g. Fama-French 3 factor model)
 
+## License
+[MIT](https://choosealicense.com/licenses/mit/)
